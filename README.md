@@ -1,23 +1,3 @@
-**This repository has been archived and is no longer under active development or maintenance.**
-
-```
-After 6 years working on BlueRetro, the time has come for me to move on
-and focus on my family and my real job.
-
-The code remains available as-is for reference, learning, and community use,
-but no new features, bug fixes, or pull requests will be accepted.
-
-Thank you to everyone who contributed, tested, reported issues,
-or supported the project over the years.
-Your involvement made BlueRetro what it is today.
-
-If you are looking to build upon this work, please feel free to
-fork the repository in accordance with the license.
-
-Thank you,
-Jacques Gagnon
-```
-
 # BlueRetro
 
 <p align="center"><img src="/static/PNGs/BRE_Logo_Color_Outline.png" width="600"/></p>
