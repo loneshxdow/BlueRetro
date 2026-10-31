@@ -80,6 +80,8 @@ typedef void (*bit_att_hid_process_func_t)(struct bt_dev *device,
 
 static struct bt_att_hid att_hid[BT_MAX_DEV] = {0};
 
+static uint16_t notify_debug_count[BT_MAX_DEV] = {0};
+
 static void bt_att_hid_start_next_state(struct bt_dev *device,
         struct bt_att_hid *hid_data);
 
@@ -673,6 +675,22 @@ void bt_att_hid_hdlr(struct bt_dev *device, struct bt_hci_pkt *bt_hci_acl_pkt, u
         case BT_ATT_OP_NOTIFY:
         {
             struct bt_att_notify *notify = (struct bt_att_notify *)bt_hci_acl_pkt->att_data;
+
+            uint32_t report_len = att_len - sizeof(notify->handle);
+
+            if (notify_debug_count[device->ids.id] < 128) {
+                bt_mon_log(false, "HID notify dev:%ld handle:%04X len:%lu data:",
+                    (long)device->ids.id,
+                    (unsigned)notify->handle,
+                    (unsigned long)report_len);
+
+                for (uint32_t i = 0; i < report_len && i < 32; i++) {
+                    bt_mon_log(false, " %02X", (unsigned)notify->value[i]);
+                }
+
+                bt_mon_log(true, "\n");
+                notify_debug_count[device->ids.id]++;
+            }
 
             switch (device->ids.type) {
                 case BT_SW2:

@@ -4,6 +4,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -68,6 +69,8 @@ static atomic_t bt_flags = 0;
 static uint32_t frag_size = 0;
 static uint32_t frag_offset = 0;
 static uint8_t frag_buf[1024];
+static uint8_t generic_report_debug_count[BT_MAX_DEV] = {0};
+static uint8_t hid_acl_debug_count[BT_MAX_DEV] = {0};
 
 static int32_t bt_host_load_bdaddr_from_nvs(void);
 static int32_t bt_host_load_keys_from_file(struct bt_host_link_keys *data);
@@ -342,6 +345,19 @@ static void bt_host_acl_hdlr(struct bt_hci_pkt *bt_hci_acl_pkt, uint32_t len) {
             printf("# %s dev NULL!\n", __FUNCTION__);
         }
         return;
+    }
+
+    if (pkt->l2cap_hdr.cid == 0x0090 && hid_acl_debug_count[device->ids.id] < 8) {
+        bt_mon_log(true, "HID ACL dev:%u type:%u cid:%04X intr:%04X ctrl:%04X hidp:%02X/%02X len:%lu\n",
+            (unsigned)device->ids.id,
+            (unsigned)device->ids.type,
+            (unsigned)pkt->l2cap_hdr.cid,
+            (unsigned)device->intr_chan.scid,
+            (unsigned)device->ctrl_chan.scid,
+            (unsigned)pkt->hidp_hdr.hdr,
+            (unsigned)pkt->hidp_hdr.protocol,
+            (unsigned long)pkt_len);
+        hid_acl_debug_count[device->ids.id]++;
     }
 
     if (pkt->l2cap_hdr.cid == BT_L2CAP_CID_BR_SIG) {
@@ -713,6 +729,7 @@ int32_t bt_host_get_next_accept_le_bdaddr(bt_addr_le_t *le_bdaddr) {
 void bt_host_bridge(struct bt_dev *device, uint8_t report_id, uint8_t *data, uint32_t len) {
     struct bt_data *bt_data = &bt_adapter.data[device->ids.id];
     uint32_t report_type = PAD;
+    uint32_t input_len = len;
 
 #ifdef CONFIG_BLUERETRO_BT_TIMING_TESTS
     atomic_set_bit(&bt_flags, BT_HOST_DBG_MODE);
@@ -728,15 +745,51 @@ void bt_host_bridge(struct bt_dev *device, uint8_t report_id, uint8_t *data, uin
     if (device->ids.type == BT_HID_GENERIC) {
         struct hid_report *report = hid_parser_get_report(device->ids.id, report_id);
         if (report == NULL || report->type == REPORT_NONE) {
-            return;
+            if (report == NULL && device->name &&
+                strcmp(device->name->name, "Xbox Wireless Controller") == 0 &&
+                report_id == 1 && input_len == 15) {
+                device->ids.subtype = BT_SUBTYPE_XBOX_XINPUT;
+                bt_data->base.report_type = report_type = PAD;
+            }
+            else {
+                if (generic_report_debug_count[device->ids.id] < 8) {
+                    bt_mon_log(true, "generic HID dropped dev:%u id:%u descriptor:%s input_len:%lu\n",
+                        (unsigned)device->ids.id,
+                        (unsigned)report_id,
+                        report ? "unsupported" : "missing",
+                        (unsigned long)input_len);
+                    generic_report_debug_count[device->ids.id]++;
+                }
+                return;
+            }
         }
-        bt_data->base.report_type = report_type = report->type;
-        len = report->len;
-        if (report_id != bt_data->base.report_id) {
-            atomic_clear_bit(&bt_data->base.flags[report_type], BT_INIT);
+        else {
+            bt_data->base.report_type = report_type = report->type;
+            len = report->len;
+            if (report_id != bt_data->base.report_id) {
+                atomic_clear_bit(&bt_data->base.flags[report_type], BT_INIT);
+            }
         }
     }
-    if (atomic_test_bit(&bt_data->base.flags[report_type], BT_INIT) || bt_data->base.report_cnt > 1) {
+    uint8_t bridge_input = atomic_test_bit(&bt_data->base.flags[report_type], BT_INIT)
+        || bt_data->base.report_cnt > 1;
+    if (device->ids.type == BT_HID_GENERIC && generic_report_debug_count[device->ids.id] < 8) {
+        bt_mon_log(false, "generic HID dev:%u id:%u type:%lu desc_len:%lu input_len:%lu cnt:%lu init:%u bridge:%u data:",
+            (unsigned)device->ids.id,
+            (unsigned)report_id,
+            (unsigned long)report_type,
+            (unsigned long)len,
+            (unsigned long)input_len,
+            (unsigned long)bt_data->base.report_cnt,
+            (unsigned)atomic_test_bit(&bt_data->base.flags[report_type], BT_INIT),
+            (unsigned)bridge_input);
+        for (uint32_t i = 0; i < input_len && i < 16; i++) {
+            bt_mon_log(false, " %02X", (unsigned)data[i]);
+        }
+        bt_mon_log(true, "\n");
+        generic_report_debug_count[device->ids.id]++;
+    }
+    if (bridge_input) {
         bt_data->base.report_id = report_id;
         bt_data->base.input = data;
         bt_data->base.input_len = len;
